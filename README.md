@@ -26,6 +26,8 @@ b12x (`davidsyoung/b12x` @ [`nf3-ds-mla`](https://github.com/davidsyoung/b12x/tr
 - `nvfp4_ds_mla` read path + b12x-native CuTe-DSL write kernel
 - `nf3_ds_mla` paired read/write kernels (NF3 3-bit NoPE lane + fp8-E4M3 RoPE lane)
 
+> **Benchmarks:** GPQA-Diamond **177/198 (89.39%)** on the 3-bit KV — equal to NVIDIA's full-model NVFP4 reference — plus LAVD context-consistency and 720k-needle results: see [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Quickstart
 
 ```bash
