@@ -33,7 +33,7 @@ b12x (`davidsyoung/b12x` @ [`nf3-ds-mla`](https://github.com/davidsyoung/b12x/tr
 
 ```bash
 hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./glm52-hybrid
-MODEL_DIR=./glm52-hybrid docker compose up -d          # balanced profile (DCP4, 500k ctx, 73 t/s)
+MODEL_DIR=./glm52-hybrid docker compose up -d          # balanced profile (DCP4, 480k ctx, 73 t/s)
 # or: docker compose -f docker-compose.dcp2.yml up -d  # prefill/interactive (~2.4k pf, 260k ctx)
 # or: docker compose -f docker-compose.dcp1.yml up -d  # max-prefill (~3.3k pf, 130k ctx)
 ```
@@ -46,7 +46,7 @@ against prefill speed:
 
 | | `docker-compose.yml` (DCP4, default) | `docker-compose.dcp2.yml` | `docker-compose.dcp1.yml` |
 |---|---|---|---|
-| Max context / KV pool | **500,000 / 545,906** *(measured)* | ~260,000 / ~277k *(projected)* | ~130,000 / ~140k *(projected)* |
+| Max context / KV pool | **480,000 / 545,906** *(measured; 500k exceeds block-table margin — vLLM ceiling 490,752)* | ~260,000 / ~277k *(projected)* | ~130,000 / ~140k *(projected)* |
 | Prefill @32k | 1,650 t/s *(measured)* | ~2,400 t/s *(projected)* | ~3,300 t/s *(projected)* |
 | Single-stream decode | **73.2 t/s @ctx0, 67-70 @32k** *(measured)* | ~66-71 t/s | ~66-73 t/s |
 | TTFT @64k | ~40s | ~27s | ~20s |
