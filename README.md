@@ -74,5 +74,9 @@ util/ml squeeze the last 5%.** `--max-cudagraph-capture-size` must cover `max_nu
 or high-concurrency decode falls off the graphs. Needs ≥64 GB host RAM; boot ~15 min cold (JIT), ~5 min
 warm (cache volume).
 
+### Hardware note — PCIe fabric
+
+Measured numbers come from GPUs attached via a [C-Payne PCIe Gen5 MCIO switch (Microchip Switchtec PM50100)](https://c-payne.com/products/pcie-gen5-mcio-switch-100-lane-microchip-switchtec-pm50100): GPU-to-GPU peer traffic switches at Gen5 even though the EPYC 7713 host uplink is Gen4. The TP/DCP collectives (allreduce, a2a) are fabric-sensitive — plain Gen4 root-port topologies will land somewhat lower on prefill/decode.
+
 Requires the NVIDIA open driver ≥580 and CUDA 13.2-capable runtime. Everything is Apache-2.0 lineage;
 model weights are madeby561's (see model card). Base image lineage: local-inference-lab eldritch cu132.

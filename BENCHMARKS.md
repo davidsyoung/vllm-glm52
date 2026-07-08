@@ -1,7 +1,11 @@
 # Benchmarks
 
-All results measured on **4× NVIDIA RTX PRO 6000 Blackwell Workstation 96 GB (SM120), TP4, PCIe Gen4
-(no NVLink), EPYC 7713** serving [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid)
+All results measured on **4× NVIDIA RTX PRO 6000 Blackwell Workstation 96 GB (SM120), TP4, no NVLink,
+EPYC 7713** — GPUs attached via a
+[C-Payne PCIe Gen5 MCIO switch (100-lane, Microchip Switchtec PM50100)](https://c-payne.com/products/pcie-gen5-mcio-switch-100-lane-microchip-switchtec-pm50100),
+so GPU↔GPU peer traffic (allreduce/a2a collectives) switches at **Gen5** while the EPYC host uplink is Gen4.
+This fabric is load-bearing for the collective-heavy numbers here — GPUs on plain Gen4 host root ports
+will see slower TP/DCP collectives. Serving [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid)
 (2026-07-07 bf16-uplift revision) with image `davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1`.
 
 Serving profile for the quality runs below: the **DCP2 profile** (`docker-compose.dcp2.yml`) with
