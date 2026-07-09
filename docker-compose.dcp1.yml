@@ -13,7 +13,7 @@
 #   MODEL_DIR=./glm52-hybrid docker compose -f docker-compose.dcp1.yml up -d
 services:
   glm52:
-    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1
+    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.1
     network_mode: host
     ipc: host
     shm_size: 32gb

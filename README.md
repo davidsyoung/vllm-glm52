@@ -89,5 +89,17 @@ decode falls off the graphs. Needs ≥64 GB host RAM; boot ~15 min cold (JIT), ~
 
 Measured numbers come from GPUs attached via a [C-Payne PCIe Gen5 MCIO switch (Microchip Switchtec PM50100)](https://c-payne.com/products/pcie-gen5-mcio-switch-100-lane-microchip-switchtec-pm50100): GPU-to-GPU peer traffic switches at Gen5 even though the EPYC 7713 host uplink is Gen4. The TP/DCP collectives (allreduce, a2a) are fabric-sensitive — plain Gen4 root-port topologies will land somewhat lower on prefill/decode.
 
+## Known issues
+
+- **`:v1` — EngineCore crash when `--max-model-len` is an exact multiple of `block_size × DCP`
+  (256 at DCP4) under concurrent decode. Fixed in `:v1.1`; the composes here now pin `:v1.1`.**
+  The DSA indexer sized its expanded block-table buffer with `cdiv(max_model_len, block_size × cp_world)`;
+  when the division is exact (the old default `480,000 / 256 = 1875` armed it) the DCP-interleaved runtime
+  block table is one entry wider, and any resumed/chunked decode (length > MTP+1 — happens under
+  concurrency) overruns it: `RuntimeError` in the flattened decode path → engine death. `:v1.1` is `:v1`
+  plus a one-line +1 buffer-width fix. If you must stay on `:v1`, set a `--max-model-len` that is NOT
+  divisible by 256 (e.g. 479,900). Quality/benchmark numbers are unaffected (the bug is a crash, not
+  a correctness issue).
+
 Requires the NVIDIA open driver ≥580 and CUDA 13.2-capable runtime. Everything is Apache-2.0 lineage;
 model weights are madeby561's (see model card). Base image lineage: local-inference-lab eldritch cu132.

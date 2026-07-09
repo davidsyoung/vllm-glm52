@@ -17,7 +17,7 @@
 # KV formats via --kv-cache-dtype: fp8 (656 B/tok/layer) · nvfp4_ds_mla (432) · nf3_ds_mla (304)
 services:
   glm52:
-    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1
+    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.1
     network_mode: host
     ipc: host
     shm_size: 32gb
