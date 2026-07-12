@@ -6,10 +6,48 @@ EPYC 7713** — GPUs attached via a
 so GPU↔GPU peer traffic (allreduce/a2a collectives) switches at **Gen5** while the EPYC host uplink is Gen4.
 This fabric is load-bearing for the collective-heavy numbers here — GPUs on plain Gen4 host root ports
 will see slower TP/DCP collectives. Serving [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid)
-(2026-07-07 bf16-uplift revision) with image `davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1`.
+(2026-07-09 bf16-uplift revision). The current production profile uses image
+`davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.2`.
 
-Serving profile for the quality runs below: the **DCP2 profile** (`docker-compose.dcp2.yml`) with
-`--kv-cache-dtype nf3_ds_mla` — the 3-bit KV cache (304 B/token/layer: NF3 NoPE + fp8-E4M3 RoPE).
+The older quality runs below used the DCP2 `nf3_ds_mla` profile. The first section records the
+current default `docker-compose.yml` profile.
+
+---
+
+## Current production profile — guarded BF16 project-before-merge
+
+Measured 2026-07-12 with DCP4, MNBT 3,072, MTP-3, utilization 0.975, max length 480k, 368-byte
+`nvfp4_ds_mla`, and an ACS preflight reporting `changed=0` across all seven GPU-path bridges.
+
+| Path | KV pool | 8k prefill | 32k prefill | 64k prefill | 128k prefill |
+|---|---:|---:|---:|---:|---:|
+| prior production | 647,680 | 1,615 | 1,730 | 1,809 | 1,807 |
+| rejected persistent MXFP8 `W_UV` | 554,240 | 1,438 | 1,645 | 1,682 | 1,692 |
+| **v1.2 guarded on-demand BF16** | **647,680** | **1,835** | **1,981** | **2,036** | **2,038** |
+
+The adopted path improves matched prefill by 12.5–14.5% without losing KV capacity. It gathers BF16
+`W_UV` only for B12X sparse prefill calls above 1,024 actual rows, projects DCP attention partials
+from 512 to 256 channels before the natural-LSE merge, and preserves the original decode path.
+
+Additional gates:
+
+- C1 decode at 8k, 30-second sustained cell: **67.7 tok/s**.
+- C8 decode at 8k: **292.2 aggregate tok/s**.
+- 128k needle retrieval at depths 0.10 / 0.35 / 0.65 / 0.90: **4/4 HIT**.
+- Focused route, metadata, natural-LSE, empty-shard, chunking, warmup, and graph-threshold tests:
+  **22/22 passed**.
+- Runtime errors, CUDA errors, OOMs, and NaNs after validation: **0**.
+
+The persistent MXFP8 gathered-weight implementation was rejected: it consumed 93,440 KV tokens,
+regressed decode, was slower in the matched run, and its 3.755–3.795% projection relative-L2 error
+exceeded the 1% numerics gate.
+
+### Fabric sensitivity
+
+With ACS redirect bits accidentally enabled on downstream GPU switch ports, the same production image
+dropped from approximately 1,680 tok/s to approximately 1,100 tok/s at 32k. Clearing Request Redirect,
+Completion Redirect, and Upstream Forwarding restored performance. This is why the default Compose
+stack has a verified one-shot ACS guard dependency.
 
 ---
 
