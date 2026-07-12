@@ -5,26 +5,12 @@
 #
 # Quickstart:
 #   hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./glm52-hybrid
-#   docker compose build acs-preflight
 #   docker compose up -d
 services:
-  acs-preflight:
-    image: glm52-acs-guard:local
-    build:
-      context: .
-      dockerfile: Dockerfile.acs
-    network_mode: none
-    privileged: true
-    restart: "no"
-    volumes:
-      - /sys:/sys
 
   glm52:
     image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.2@sha256:994fb9dfa20ea37544fb5454d076a25edb3947a6553d55c13c2ddea60adbd18d
     pull_policy: always
-    depends_on:
-      acs-preflight:
-        condition: service_completed_successfully
     network_mode: host
     ipc: host
     shm_size: 32gb

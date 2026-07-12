@@ -28,8 +28,8 @@ cd vllm-glm52
 hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid \
   --local-dir ./glm52-hybrid
 
-# 3. Build the small ACS preflight image, pull v1.2, and start the server.
-docker compose up -d --build
+# 3. Pull v1.2 and start the server.
+docker compose up -d
 
 # 4. Cold boot can take about 15 minutes; warm boot is normally about 5 minutes.
 docker compose logs -f glm52
@@ -41,7 +41,7 @@ curl -fsS http://127.0.0.1:5001/v1/models
 To keep the checkpoint elsewhere:
 
 ```bash
-MODEL_DIR=/absolute/path/to/glm52-hybrid docker compose up -d --build
+MODEL_DIR=/absolute/path/to/glm52-hybrid docker compose up -d
 ```
 
 The API is served on `http://127.0.0.1:5001/v1`, with model name `GLM-5.2`.
@@ -71,31 +71,10 @@ The 1,024-row project-before-merge threshold is deliberately greater than the 64
 capture size. Decode graphs therefore keep the original merge-then-project path and never capture the
 per-call NCCL weight gather.
 
-## Why Compose runs an ACS preflight
-
-PCIe ACS Request Redirect, Completion Redirect, or Upstream Forwarding on any GPU-path bridge can force
-peer traffic upstream instead of through the GPU switch. On the measured host that reduced 32k prefill
-from approximately 1,680 tok/s to approximately 1,100 tok/s.
-
-`docker-compose.yml` first builds and runs `Dockerfile.acs` as a privileged one-shot service. The guard:
-
-1. walks every bridge in every NVIDIA GPU's complete upstream path;
-2. clears only those three redirect bits;
-3. preserves Source Validation and all unrelated ACS controls;
-4. reads every control word back and fails the Compose dependency if verification fails.
-
-The vLLM service starts only after `acs-preflight` exits successfully. Inspect it with:
-
-```bash
-docker compose logs acs-preflight
-# Expected on an already-correct four-GPU host:
-# ACS redirect clear on 7 GPU-path bridges; changed=0 GPUs=4
-```
-
 ## Measured results
 
 Hardware: 4× RTX PRO 6000 Blackwell 96 GB, EPYC 7713, TP4+DCP4, Microchip Switchtec Gen5 GPU P2P.
-Every cell used the exact Compose profile above and a clean ACS preflight.
+Every cell used the exact Compose profile above on the measured peer-switch configuration.
 
 | Metric | Result |
 |---|---:|
@@ -126,12 +105,6 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the comparison and validation details.
 - Projection helper scratch bounded to 144 MiB with production-size chunking.
 - CUDA graph safety invariant: prefill threshold must be at least the maximum graph capture size.
 - The DSA indexer block-table width fix is baked into the image; no host bind mount is required.
-
-## Other Compose files
-
-`docker-compose.dcp1.yml` and `docker-compose.dcp2.yml` preserve the older short-context profiles from
-`v1.1`. They are not the measured production setup described above. Use the default
-`docker-compose.yml` to reproduce the current best balanced configuration.
 
 ## Image and source lineage
 

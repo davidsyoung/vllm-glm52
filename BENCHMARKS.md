@@ -16,8 +16,8 @@ current default `docker-compose.yml` profile.
 
 ## Current production profile — guarded BF16 project-before-merge
 
-Measured 2026-07-12 with DCP4, MNBT 3,072, MTP-3, utilization 0.975, max length 480k, 368-byte
-`nvfp4_ds_mla`, and an ACS preflight reporting `changed=0` across all seven GPU-path bridges.
+Measured 2026-07-12 with DCP4, MNBT 3,072, MTP-3, utilization 0.975, max length 480k,
+and 368-byte `nvfp4_ds_mla`.
 
 | Path | KV pool | 8k prefill | 32k prefill | 64k prefill | 128k prefill |
 |---|---:|---:|---:|---:|---:|
@@ -42,12 +42,6 @@ The persistent MXFP8 gathered-weight implementation was rejected: it consumed 93
 regressed decode, was slower in the matched run, and its 3.755–3.795% projection relative-L2 error
 exceeded the 1% numerics gate.
 
-### Fabric sensitivity
-
-With ACS redirect bits accidentally enabled on downstream GPU switch ports, the same production image
-dropped from approximately 1,680 tok/s to approximately 1,100 tok/s at 32k. Clearing Request Redirect,
-Completion Redirect, and Upstream Forwarding restored performance. This is why the default Compose
-stack has a verified one-shot ACS guard dependency.
 
 ---
 
@@ -99,11 +93,11 @@ the failure mode it hunts is losing track of corrections buried deep in context.
 
 | Profile | KV | Needle depth | Result |
 |---|---|---|---|
-| DCP4 max-context (`docker-compose.yml`) | `nf3_ds_mla` | **720,000 tokens** (50% depth) | HIT (exact string, 718,643-token prompt) |
-| DCP2 (`docker-compose.dcp2.yml`) | `nf3_ds_mla` | 300,000 tokens (50% depth) | HIT |
+| Historical DCP4 max-context | `nf3_ds_mla` | **720,000 tokens** (50% depth) | HIT (exact string, 718,643-token prompt) |
+| Historical DCP2 | `nf3_ds_mla` | 300,000 tokens (50% depth) | HIT |
 
 ## Notes
 
 - Speculative decoding (MTP) is lossless — it never changes outputs, only speed. Quality results are
-  independent of the `num_speculative_tokens` setting in the composes.
+  independent of the `num_speculative_tokens` setting in the serving profile.
 - Raw logs/JSON for these runs are kept out of the repo for size; open an issue if you want them.
