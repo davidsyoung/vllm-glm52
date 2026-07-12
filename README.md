@@ -21,8 +21,8 @@ The default Compose file is the exact production profile measured on 2026-07-12.
 
 ```bash
 # 1. Clone this repository and enter it.
-git clone https://github.com/davidsyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv.git
-cd vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv
+git clone https://github.com/davidsyoung/vllm-glm52.git
+cd vllm-glm52
 
 # 2. Download the checkpoint. This is the default MODEL_DIR used by Compose.
 hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid \
