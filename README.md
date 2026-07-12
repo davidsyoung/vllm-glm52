@@ -1,4 +1,4 @@
-# GLM-5.2 low-bit KV serving on four Blackwell GPUs
+# GLM-5.2 serving on four Blackwell GPUs
 
 Ready-to-run vLLM+B12X configuration for
 [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid):
