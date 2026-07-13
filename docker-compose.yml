@@ -1,7 +1,7 @@
 # GLM-5.2 MXFP8-NVFP4-NF3 Hybrid — measured production profile.
 # Hardware: 4x RTX PRO 6000 Blackwell 96 GB, TP4/DCP4, Gen5 P2P switch.
-# Measured: 647,680-token KV pool; prefill 1,835/1,981/2,036/2,038 tok/s
-# at 8k/32k/64k/128k; 67.7 tok/s C1 decode at 8k; 4/4 needle at 128k.
+# Measured: 637,440-token KV pool; prefill 1,987/2,131/2,109/2,141 tok/s
+# at 8k/32k/64k/128k; guarded A2A for decode rows <= 16.
 #
 # Quickstart:
 #   hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./glm52-hybrid
@@ -9,7 +9,7 @@
 services:
 
   glm52:
-    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.2@sha256:994fb9dfa20ea37544fb5454d076a25edb3947a6553d55c13c2ddea60adbd18d
+    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3
     pull_policy: always
     network_mode: host
     ipc: host
@@ -56,7 +56,7 @@ services:
       VLLM_PCIE_DMA_FP8: ag
       B12X_PCIE_DMA_FP8: ag
       VLLM_USE_B12X_DCP_A2A: "1"
-      VLLM_DCP_A2A_MAX_TOKENS: "64"
+      VLLM_DCP_A2A_MAX_TOKENS: "16"
       VLLM_DCP_A2A_LARGE_BACKEND: ag_rs
       VLLM_DCP_PROJECT_BEFORE_MERGE: "1"
       VLLM_DCP_PROJECT_BEFORE_MERGE_MIN_PREFILL_TOKENS: "1024"
@@ -65,7 +65,7 @@ services:
       HYBRID_NF3: b12x_nf3
       HYBRID_B12X_MAX_TOKENS: "2048"
       HYBRID_MXFP8_NATIVE: "1"
-      SWEEP_PROFILE_NAME: fastest_ondemand_bf16_dcp4_mnbt3072_mtp3
+      SWEEP_PROFILE_NAME: v1_3_fast647_a2a16_dcp4_mnbt3072_mtp3
     command:
       - vllm
       - serve
@@ -82,7 +82,7 @@ services:
       - --decode-context-parallel-size
       - "4"
       - --dcp-comm-backend
-      - ag_rs
+      - a2a
       - --dcp-kv-cache-interleave-size
       - "1"
       - --kv-cache-dtype
@@ -95,15 +95,17 @@ services:
       - safetensors
       - -cc.pass_config.fuse_allreduce_rms=True
       - --gpu-memory-utilization
-      - "0.975"
+      - "0.986"
       - --max-model-len
       - "480000"
       - --max-num-seqs
       - "8"
       - --max-num-batched-tokens
       - "3072"
+      - --num-gpu-blocks-override
+      - "2490"
       - --max-cudagraph-capture-size
-      - "64"
+      - "32"
       - --async-scheduling
       - --enable-chunked-prefill
       - --enable-prefix-caching

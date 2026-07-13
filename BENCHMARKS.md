@@ -7,14 +7,72 @@ so GPU↔GPU peer traffic (allreduce/a2a collectives) switches at **Gen5** while
 This fabric is load-bearing for the collective-heavy numbers here — GPUs on plain Gen4 host root ports
 will see slower TP/DCP collectives. Serving [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid)
 (2026-07-09 bf16-uplift revision). The current production profile uses image
-`davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.2`.
+`davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3`.
 
 The older quality runs below used the DCP2 `nf3_ds_mla` profile. The first section records the
 current default `docker-compose.yml` profile.
 
 ---
 
-## Current production profile — guarded BF16 project-before-merge
+## v1.3 production profile — fast647 workspace and guarded A2A
+
+Measured 2026-07-13 with DCP4, MNBT 3,072, MTP-3, utilization 0.986, CUDA graph cap 32,
+an explicit 2,490-block allocation, and 368-byte `nvfp4_ds_mla`.
+
+### Prefill
+
+Standalone cold prefill, exact token targeting:
+
+| Profile | KV pool | 8k | 32k | 64k | 128k |
+|---|---:|---:|---:|---:|---:|
+| normalized clean-v1.2 control | 647,680 | 1,912 | 2,034 | 2,009 | 2,032 |
+| historical fast647 profile | 637,440 | 1,987 | 2,108 | 2,117 | 2,136 |
+| **v1.3 reproduction** | **637,440** | **1,987** | **2,131** | **2,109** | **2,141** |
+| v1.3 vs clean | −1.58% | **+3.92%** | **+4.77%** | **+4.98%** | **+5.36%** |
+
+The release reproduction used 20 / 6 / 3 / 2 samples at 8k / 32k / 64k / 128k and landed within
+1.1% of the historical profile in every cell. Its prefill geometric-mean gain over the normalized
+clean control is **4.76%**.
+
+### Decode
+
+The isolated end-to-end transport A/B used the clean v1.2 lineage and identical TP4/DCP4, MTP-3,
+MNBT, graph, pool, prompt, and harness settings. Only DCP transport changed:
+
+| Concurrency / context | AG/RS return control | Guarded A2A | Delta |
+|---|---:|---:|---:|
+| C1 / 0 | 72.1 | **80.2** | **+11.2%** |
+| C1 / 8k | 66.9 | **74.2** | **+10.8%** |
+| C1 / 32k | 68.2 | **74.1** | **+8.7%** |
+| C8 / 0 | 298.0 | **308.7** | **+3.6%** |
+| C8 / 32k | **295.4** | 293.0 | −0.8% |
+
+v1.3 uses B12X A2A only through 16 DCP rows and retains AG/RS above that cutoff. This captures the
+small-row C1 improvement while keeping larger-row behavior on the established backend.
+
+The exact fast647+A2A v1.3 release profile then produced this 30-second sustained-decode smoke:
+
+| Context | C1 tok/s | C8 aggregate tok/s |
+|---:|---:|---:|
+| 0 | **79.4** | **311.5** |
+| 32k | **71.6** | **290.4** |
+| 64k | **69.0** | **276.5** |
+| 128k | **71.4** | capacity-limited |
+
+All runnable cells reached the requested concurrency with zero request errors. C8 at 128k exceeds the
+637,440-token pool by construction and was excluded rather than reported as a performance result.
+
+### Release constraints
+
+- KV pool: **2,490 blocks / 637,440 tokens**.
+- Larger 2,530-block and auto-admitted 2,592-block workspace configurations failed during startup;
+  v1.3 intentionally carries the explicit safe cap.
+- Four-rank A2A numerics: exact BF16 gather and stable FP32 LSE reference error at most `0.001953125`.
+- API quality and post-build runtime checks are recorded against the immutable v1.3 image.
+
+---
+
+## v1.2 profile — guarded BF16 project-before-merge
 
 Measured 2026-07-12 with DCP4, MNBT 3,072, MTP-3, utilization 0.975, max length 480k,
 and 368-byte `nvfp4_ds_mla`.
