@@ -1646,6 +1646,67 @@ class MLAAttention(nn.Module, AttentionLayerBase):
         else:
             torch.bmm(x_bmm, w_uv, out=out_view.transpose(0, 1))
 
+    def _v_up_proj_bmm_chunked(
+        self,
+        x: torch.Tensor,
+        out: torch.Tensor,
+        w_uv: torch.Tensor,
+    ) -> None:
+        """Bound DCP projection temporaries while preserving exact BF16 BMM."""
+        if x.ndim != 3 or out.ndim != 3 or w_uv.ndim != 3:
+            raise ValueError(
+                "DCP projection expects rank-3 x/out/W_UV tensors, got "
+                f"x={tuple(x.shape)}, out={tuple(out.shape)}, "
+                f"w_uv={tuple(w_uv.shape)}."
+            )
+        num_tokens, num_heads, latent_dim = x.shape
+        expected_out_shape = (num_tokens, num_heads, self.v_head_dim)
+        expected_weight_shape = (
+            num_heads,
+            self.kv_lora_rank,
+            self.v_head_dim,
+        )
+        if (
+            latent_dim != self.kv_lora_rank
+            or out.shape != expected_out_shape
+            or w_uv.shape != expected_weight_shape
+        ):
+            raise ValueError(
+                "DCP projection geometry mismatch: "
+                f"x={tuple(x.shape)}, out={tuple(out.shape)}, "
+                f"w_uv={tuple(w_uv.shape)}."
+            )
+        if (
+            x.dtype != torch.bfloat16
+            or out.dtype != x.dtype
+            or w_uv.dtype != x.dtype
+        ):
+            raise TypeError(
+                "DCP projection requires matching BF16 x/out/W_UV tensors, got "
+                f"x={x.dtype}, out={out.dtype}, w_uv={w_uv.dtype}."
+            )
+        if out.device != x.device or w_uv.device != x.device:
+            raise ValueError(
+                "DCP projection x/out/W_UV devices must match, got "
+                f"x={x.device}, out={out.device}, w_uv={w_uv.device}."
+            )
+        if not w_uv.is_contiguous():
+            raise ValueError("DCP W_UV projection weights must be contiguous.")
+
+        # _v_up_proj_bmm materializes contiguous [H,T,L] input and [H,T,V]
+        # output scratch for B12X. Bound only their combined live size to 144 MiB;
+        # the nested helper scope releases both before the next chunk is allocated.
+        temp_budget_bytes = 144 * 1024 * 1024
+        temp_bytes_per_token = (
+            num_heads
+            * (self.kv_lora_rank + self.v_head_dim)
+            * x.element_size()
+        )
+        max_chunk_tokens = max(1, temp_budget_bytes // temp_bytes_per_token)
+        for start in range(0, num_tokens, max_chunk_tokens):
+            end = min(start + max_chunk_tokens, num_tokens)
+            self._v_up_proj_bmm(x[start:end], out[start:end], w_uv)
+
 
 def unified_mla_kv_cache_update(
     kv_c_normed: torch.Tensor,

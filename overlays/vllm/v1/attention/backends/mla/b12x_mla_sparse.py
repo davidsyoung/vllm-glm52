@@ -607,8 +607,8 @@ class B12xMLASparseImpl(SparseMLAAttentionImpl[B12xMLASparseMetadata]):
         # DCP backend. The kernel must therefore plan for, and return, the full
         # gathered head set; the outer layer reduces/scatters it back afterward.
         self._input_num_heads = self.num_heads * self.dcp_world_size
-        # kingdom(nvfp4_ds_mla): b12x ScaleFormat selects the packed-latent
-        # record in the unified SM120 decode/extend kernels: NVFP4_E4M3 == 2
+        # B12X ScaleFormat selects the packed-latent record in the unified
+        # SM120 decode/extend kernels: NVFP4_E4M3 == 2
         # (368 B/token), NF3_E4M3 == 3 (304 B/token, e4m3 rope + fp32 rope
         # scale), NF3_BF16ROPE == 4 (368 B/token diagnostic). None keeps the
         # dtype-inferred format (ARBITRARY_FP32 for the 656 B fp8_ds_mla
@@ -618,8 +618,8 @@ class B12xMLASparseImpl(SparseMLAAttentionImpl[B12xMLASparseMetadata]):
             "nf3_ds_mla": 3,
             "nf3bf16_ds_mla": 4,
         }.get(self.kv_cache_dtype)
-        # kingdom(nvfp4_ds_mla): forwarded into every plan/decode/extend b12x
-        # call ONLY for the packed-latent records, so fp8_ds_mla serving keeps
+        # Forward this into every plan/decode/extend B12X call only for
+        # packed-latent records, so fp8_ds_mla serving keeps
         # the stock b12x call signature (works on a b12x tree without the
         # packed-latent read-path port; the port is required only to serve
         # nvfp4_ds_mla / nf3_ds_mla / nf3bf16_ds_mla).
@@ -684,8 +684,8 @@ class B12xMLASparseImpl(SparseMLAAttentionImpl[B12xMLASparseMetadata]):
         def _make_plan(
             mode: str, max_q_rows: int, num_q_heads: int, max_batch: int
         ) -> Any:
-            # kingdom(nvfp4_ds_mla): the FP4 record needs the caps to carry the
-            # cache dtype + b12x ScaleFormat so the scratch planner sizes for
+            # Packed-latent records need the caps to carry the cache dtype and
+            # B12X ScaleFormat so the scratch planner sizes for
             # the 432 B record; omit both for fp8_ds_mla so the caps stay
             # constructible on a stock (pre-nvfp4-port) b12x tree.
             caps_kwargs: dict[str, Any] = (
@@ -1682,7 +1682,7 @@ class B12xMLASparseImpl(SparseMLAAttentionImpl[B12xMLASparseMetadata]):
         # whenever this prewarm ran (i.e. spec + cudagraphs, the first config
         # to reach here; verifier-only and eager-snap both skipped it).
         # One page is enough: prewarm top-k indices all point at slot zero.
-        # kingdom(nvfp4_ds_mla): record width follows the cache dtype.
+        # Record width follows the cache dtype.
         record_bytes = {
             "nvfp4_ds_mla": 368,
             "nf3_ds_mla": 304,

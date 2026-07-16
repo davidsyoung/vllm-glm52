@@ -1,7 +1,7 @@
 # GLM-5.2 MXFP8-NVFP4-NF3 Hybrid — measured production profile.
 # Hardware: 4x RTX PRO 6000 Blackwell 96 GB, TP4/DCP4, Gen5 P2P switch.
-# Measured: 637,440-token KV pool; prefill 1,987/2,131/2,109/2,141 tok/s
-# at 8k/32k/64k/128k; guarded A2A for decode rows <= 16.
+# Measured: 637,440-token KV pool; 2,128 tok/s at 32k prefill; repeated
+# deterministic C1/ctx0 medians of 105.7 aggregate and 112.2 per-user tok/s.
 #
 # Quickstart:
 #   hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./glm52-hybrid
@@ -9,7 +9,7 @@
 services:
 
   glm52:
-    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3
+    image: davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.4
     pull_policy: always
     network_mode: host
     ipc: host
@@ -65,7 +65,8 @@ services:
       HYBRID_NF3: b12x_nf3
       HYBRID_B12X_MAX_TOKENS: "2048"
       HYBRID_MXFP8_NATIVE: "1"
-      SWEEP_PROFILE_NAME: v1_3_fast647_a2a16_dcp4_mnbt3072_mtp3
+      # Grid188 decode, runtime synchronization, cache release, and fresh-AOT
+      # defaults are baked into the image rather than supplied only by Compose.
     command:
       - vllm
       - serve
