@@ -1,29 +1,38 @@
-ARG BASE_IMAGE=davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.2@sha256:994fb9dfa20ea37544fb5454d076a25edb3947a6553d55c13c2ddea60adbd18d
+ARG BASE_IMAGE=davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3@sha256:99ae7b28bb7069b9f7a96f75ea815be56266d2cccf7808d4c497340bb8658bd5
 FROM ${BASE_IMAGE}
 
-ARG VERSION=1.3
+ARG VERSION=1.4
 LABEL org.opencontainers.image.title="vllm-glm52" \
-      org.opencontainers.image.description="GLM-5.2 TP4+DCP4 serving image with fast647 MLA workspace reuse and guarded B12X DCP A2A" \
+      org.opencontainers.image.description="GLM-5.2 TP4+DCP4 serving with exact-shape W4A16 Grid188 decode and MTP/DCP synchronization fixes" \
       org.opencontainers.image.source="https://github.com/davidsyoung/vllm-glm52" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.base.name="davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3" \
+      org.opencontainers.image.base.digest="sha256:99ae7b28bb7069b9f7a96f75ea815be56266d2cccf7808d4c497340bb8658bd5"
 
-ENV B12X_INDEXER_TWO_LEVEL_FOLD=0 \
-    B12X_MLA_DCP_GATHER_IN_WORKSPACE=1 \
-    VLLM_USE_B12X_DCP_A2A=1 \
-    VLLM_DCP_A2A_MAX_TOKENS=16 \
-    VLLM_DCP_A2A_LARGE_BACKEND=ag_rs
+ENV HYBRID_TC_DECODE=1 \
+    HYBRID_NF3_TC_DECODE=1 \
+    HYBRID_HETERO_DECODE=1 \
+    B12X_EMPTY_CACHE_AFTER_WARMUP=1 \
+    VLLM_USE_AOT_COMPILE=1 \
+    VLLM_DISABLE_COMPILE_CACHE=1
 
+COPY overlays/hybrid_loader.py /opt/venv/lib/python3.12/site-packages/hybrid_loader.py
+COPY overlays/b12x/gemm/block_fp8_linear.py /opt/venv/lib/python3.12/site-packages/b12x/gemm/block_fp8_linear.py
+COPY overlays/b12x/moe/fused/w4a16/kernel.py /opt/venv/lib/python3.12/site-packages/b12x/moe/fused/w4a16/kernel.py
+COPY overlays/b12x/moe/fused/w4a16/route_pack.py /opt/venv/lib/python3.12/site-packages/b12x/moe/fused/w4a16/route_pack.py
 COPY overlays/vllm/model_executor/layers/attention/mla_attention.py /opt/venv/lib/python3.12/site-packages/vllm/model_executor/layers/attention/mla_attention.py
-COPY overlays/vllm/v1/attention/backends/mla/b12x_mla_sparse.py /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/b12x_mla_sparse.py
-COPY overlays/vllm/v1/attention/ops/common.py /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/ops/common.py
-COPY overlays/vllm/distributed/parallel_state.py /opt/venv/lib/python3.12/site-packages/vllm/distributed/parallel_state.py
-COPY overlays/vllm/distributed/device_communicators/cuda_communicator.py /opt/venv/lib/python3.12/site-packages/vllm/distributed/device_communicators/cuda_communicator.py
-COPY overlays/b12x/attention/indexer/paged.py /opt/venv/lib/python3.12/site-packages/b12x/attention/indexer/paged.py
+COPY overlays/vllm/v1/attention/backends/utils.py /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/backends/utils.py
+COPY overlays/vllm/v1/sample/ops/topk_topp_sampler.py /opt/venv/lib/python3.12/site-packages/vllm/v1/sample/ops/topk_topp_sampler.py
+COPY overlays/vllm/v1/worker/gpu_worker.py /opt/venv/lib/python3.12/site-packages/vllm/v1/worker/gpu_worker.py
+COPY overlays/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py /opt/venv/lib/python3.12/site-packages/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py
 
 RUN python3 -m py_compile \
+    /opt/venv/lib/python3.12/site-packages/hybrid_loader.py \
+    /opt/venv/lib/python3.12/site-packages/b12x/gemm/block_fp8_linear.py \
+    /opt/venv/lib/python3.12/site-packages/b12x/moe/fused/w4a16/kernel.py \
+    /opt/venv/lib/python3.12/site-packages/b12x/moe/fused/w4a16/route_pack.py \
     /opt/venv/lib/python3.12/site-packages/vllm/model_executor/layers/attention/mla_attention.py \
-    /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/backends/mla/b12x_mla_sparse.py \
-    /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/ops/common.py \
-    /opt/venv/lib/python3.12/site-packages/vllm/distributed/parallel_state.py \
-    /opt/venv/lib/python3.12/site-packages/vllm/distributed/device_communicators/cuda_communicator.py \
-    /opt/venv/lib/python3.12/site-packages/b12x/attention/indexer/paged.py
+    /opt/venv/lib/python3.12/site-packages/vllm/v1/attention/backends/utils.py \
+    /opt/venv/lib/python3.12/site-packages/vllm/v1/sample/ops/topk_topp_sampler.py \
+    /opt/venv/lib/python3.12/site-packages/vllm/v1/worker/gpu_worker.py \
+    /opt/venv/lib/python3.12/site-packages/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py

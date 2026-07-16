@@ -1,161 +1,132 @@
 # Benchmarks
 
-All results measured on **4× NVIDIA RTX PRO 6000 Blackwell Workstation 96 GB (SM120), TP4, no NVLink,
-EPYC 7713** — GPUs attached via a
-[C-Payne PCIe Gen5 MCIO switch (100-lane, Microchip Switchtec PM50100)](https://c-payne.com/products/pcie-gen5-mcio-switch-100-lane-microchip-switchtec-pm50100),
-so GPU↔GPU peer traffic (allreduce/a2a collectives) switches at **Gen5** while the EPYC host uplink is Gen4.
-This fabric is load-bearing for the collective-heavy numbers here — GPUs on plain Gen4 host root ports
-will see slower TP/DCP collectives. Serving [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid)
-(2026-07-09 bf16-uplift revision). The current production profile uses image
-`davidyoung/vllm-glm52-nvfp4-nf3-hybrid-lowbit-kv:v1.3`.
+## Test setup
 
-The older quality runs below used the DCP2 `nf3_ds_mla` profile. The first section records the
-current default `docker-compose.yml` profile.
+All results were measured on four NVIDIA RTX PRO 6000 Blackwell Workstation 96 GB GPUs (SM120), TP4+DCP4, with an EPYC 7713 host. GPU peer traffic uses a Microchip Switchtec Gen5 P2P switch; systems limited to Gen4 root-port paths should expect slower collective-heavy results.
 
----
+The served checkpoint is [madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid](https://huggingface.co/madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid), bf16-uplift revision: 78 main layers plus one MTP layer, hidden size 6,144, 256 routed experts with top-8 routing, and 75 hybrid MoE layers containing 64 NVFP4 plus 192 NF3 experts.
 
-## v1.3 production profile — fast647 workspace and guarded A2A
+| Setting | Value |
+|---|---|
+| Release | v1.4, built on immutable public v1.3 |
+| Parallelism | TP4 + DCP4, interleave 1 |
+| Speculation | MTP3, probabilistic draft sampling |
+| Attention / MoE | `B12X_MLA_SPARSE` / `b12x` |
+| KV cache | `nvfp4_ds_mla`, 368 bytes/token/layer |
+| KV pool | 2,490 blocks / 637,440 tokens |
+| Max model length | 480,000 |
+| Max sequences / batched tokens | 8 / 3,072 |
+| CUDA graph cap | 32 |
+| GPU memory utilization | 0.986 |
+| Scheduling | async, chunked prefill, prefix caching |
 
-Measured 2026-07-13 with DCP4, MNBT 3,072, MTP-3, utilization 0.986, CUDA graph cap 32,
-an explicit 2,490-block allocation, and 368-byte `nvfp4_ds_mla`.
+## Metric definitions
 
-### Prefill
+- **Client aggregate tok/s** is total completion tokens divided by the sustained measured interval. It includes request turnover and idle gaps.
+- **Per-user active-decode tok/s** is derived from inter-token latency while generation is active. It excludes time to first token and inter-request gaps.
+- **Client prefill tok/s** is prompt tokens divided by client-observed time to first token for standalone prefill.
 
-Standalone cold prefill, exact token targeting:
+Aggregate and per-user throughput are not interchangeable, even at C1. C8 aggregate throughput is a capacity result, not single-user speed.
 
-| Profile | KV pool | 8k | 32k | 64k | 128k |
-|---|---:|---:|---:|---:|---:|
-| normalized clean-v1.2 control | 647,680 | 1,912 | 2,034 | 2,009 | 2,032 |
-| historical fast647 profile | 637,440 | 1,987 | 2,108 | 2,117 | 2,136 |
-| **v1.3 reproduction** | **637,440** | **1,987** | **2,131** | **2,109** | **2,141** |
-| v1.3 vs clean | −1.58% | **+3.92%** | **+4.77%** | **+4.98%** | **+5.36%** |
+Two decode request protocols are shown separately. The deterministic campaign used a fixed deterministic request payload while the serving stack retained probabilistic MTP3 draft sampling. The stochastic campaign used a stochastic request payload. They are characterizations of the same release, not a matched A/B between protocols.
 
-The release reproduction used 20 / 6 / 3 / 2 samples at 8k / 32k / 64k / 128k and landed within
-1.1% of the historical profile in every cell. Its prefill geometric-mean gain over the normalized
-clean control is **4.76%**.
+## Current release results
 
-### Decode
+### Exact-32k prefill
 
-The isolated end-to-end transport A/B used the clean v1.2 lineage and identical TP4/DCP4, MTP-3,
-MNBT, graph, pool, prompt, and harness settings. Only DCP transport changed:
-
-| Concurrency / context | AG/RS return control | Guarded A2A | Delta |
-|---|---:|---:|---:|
-| C1 / 0 | 72.1 | **80.2** | **+11.2%** |
-| C1 / 8k | 66.9 | **74.2** | **+10.8%** |
-| C1 / 32k | 68.2 | **74.1** | **+8.7%** |
-| C8 / 0 | 298.0 | **308.7** | **+3.6%** |
-| C8 / 32k | **295.4** | 293.0 | −0.8% |
-
-v1.3 uses B12X A2A only through 16 DCP rows and retains AG/RS above that cutoff. This captures the
-small-row C1 improvement while keeping larger-row behavior on the established backend.
-
-The exact fast647+A2A v1.3 release profile then produced this 30-second sustained-decode smoke:
-
-| Context | C1 tok/s | C8 aggregate tok/s |
+| Run | Client prefill tok/s | TTFT |
 |---:|---:|---:|
-| 0 | **79.4** | **311.5** |
-| 32k | **71.6** | **290.4** |
-| 64k | **69.0** | **276.5** |
-| 128k | **71.4** | capacity-limited |
+| Public v1.3 reference | **2,131** | 15.377 s |
+| v1.4 repeat 1 | **2,128** | 15.398 s |
+| v1.4 repeat 2 | **2,128** | 15.400 s |
 
-All runnable cells reached the requested concurrency with zero request errors. C8 at 128k exceeds the
-637,440-token pool by construction and was excluded rather than reported as a performance result.
+The release keeps AOT mode but bypasses direct load and save of the serialized standalone-AOT function for this profile. Lower-level compiler caches remain writable and reusable. The two v1.4 cells effectively match the public v1.3 reference.
 
-### Release constraints
+### Deterministic C1/ctx0 repeats
 
-- KV pool: **2,490 blocks / 637,440 tokens**.
-- Larger 2,530-block and auto-admitted 2,592-block workspace configurations failed during startup;
-  v1.3 intentionally carries the explicit safe cap.
-- Four-rank A2A numerics: exact BF16 gather and stable FP32 LSE reference error at most `0.001953125`.
-- API quality and post-build runtime checks are recorded against the immutable v1.3 image.
+| Run | Window | Client aggregate tok/s | Per-user active-decode tok/s | Errors |
+|---:|---:|---:|---:|---:|
+| 1 | 60 s | **108.708** | **114.402** | 0 |
+| 2 | 60 s | **105.703** | **112.153** | 0 |
+| 3 | 60 s | **106.856** | **112.598** | 0 |
+| 4 | 60 s | **105.642** | **111.892** | 0 |
+| 5 | 60 s | **105.276** | **111.055** | 0 |
+| **Median** | five cells | **105.703** | **112.153** | **0** |
 
----
+Every cell reached exact effective concurrency 1, was not capacity-limited, and completed without request errors.
 
-## v1.2 profile — guarded BF16 project-before-merge
+### Stochastic serving matrix
 
-Measured 2026-07-12 with DCP4, MNBT 3,072, MTP-3, utilization 0.975, max length 480k,
-and 368-byte `nvfp4_ds_mla`.
+| Cell | Client aggregate tok/s | Per-user active-decode tok/s | Status |
+|---|---:|---:|---|
+| C1 / ctx0 | **102.895** | **107.575** | 0 errors |
+| C1 / ctx32k | **93.414** | **101.243** | 0 errors |
+| C1 / ctx64k | **89.777** | **97.563** | 0 errors |
+| C1 / ctx128k | **89.762** | **98.210** | 0 errors |
+| C8 / ctx0 | **318.535** | **36.751** | 0 errors |
+| C8 / ctx32k | **307.744** | not retained | 0 errors |
+| C8 / ctx64k | **293.774** | not retained | 0 errors |
+| C8 / ctx128k | excluded | excluded | capacity-limited by construction |
 
-| Path | KV pool | 8k prefill | 32k prefill | 64k prefill | 128k prefill |
-|---|---:|---:|---:|---:|---:|
-| prior production | 647,680 | 1,615 | 1,730 | 1,809 | 1,807 |
-| rejected persistent MXFP8 `W_UV` | 554,240 | 1,438 | 1,645 | 1,682 | 1,692 |
-| **v1.2 guarded on-demand BF16** | **647,680** | **1,835** | **1,981** | **2,036** | **2,038** |
+Five additional stochastic C1/ctx0 repeats measured:
 
-The adopted path improves matched prefill by 12.5–14.5% without losing KV capacity. It gathers BF16
-`W_UV` only for B12X sparse prefill calls above 1,024 actual rows, projects DCP attention partials
-from 512 to 256 channels before the natural-LSE merge, and preserves the original decode path.
+| Run | Client aggregate tok/s | Per-user active-decode tok/s |
+|---:|---:|---:|
+| 1 | **102.063** | **109.254** |
+| 2 | **100.189** | **106.255** |
+| 3 | **98.602** | **104.525** |
+| 4 | **101.727** | **110.415** |
+| 5 | **100.044** | **107.949** |
+| **Median** | **100.189** | **107.949** |
 
-Additional gates:
+All five repeats completed without request errors.
 
-- C1 decode at 8k, 30-second sustained cell: **67.7 tok/s**.
-- C8 decode at 8k: **292.2 aggregate tok/s**.
-- 128k needle retrieval at depths 0.10 / 0.35 / 0.65 / 0.90: **4/4 HIT**.
-- Focused route, metadata, natural-LSE, empty-shard, chunking, warmup, and graph-threshold tests:
-  **22/22 passed**.
-- Runtime errors, CUDA errors, OOMs, and NaNs after validation: **0**.
+## Optimization-specific validation
 
-The persistent MXFP8 gathered-weight implementation was rejected: it consumed 93,440 KV tokens,
-regressed decode, was slower in the matched run, and its 3.755–3.795% projection relative-L2 error
-exceeded the 1% numerics gate.
+### Grid188 heterogeneous W4A16
 
+The exact `M=4` kernel combines both expert tiers, activation, and weighted FC2 accumulation in one 188-CTA grid. It uses global expert IDs directly and falls back to direct128 or serial per-tier launches when exact admission fails.
 
----
+The historical release-reference cell for the mapped Grid188 path was:
 
-## GPQA-Diamond — 3-bit KV holds full-model accuracy
+| Cell | Window | Client aggregate tok/s | Per-user active-decode tok/s | Server generation tok/s | Acceptance | Errors |
+|---|---:|---:|---:|---:|---:|---:|
+| MTP3 probabilistic, C1/ctx0 | 60 s | **98.4165** | **105.0030** | **98.4048** | **0.5766** | 0 |
 
-**177/198 = 89.39%**, zero API errors, 198/198 completed.
+The cell reached effective concurrency 1, was not underfilled, and was not capacity-limited. It is a release reference rather than a current-image lineage attestation.
 
-| Model revision | KV cache | Bytes/tok/layer | GPQA-Diamond |
-|---|---|---|---|
-| rev 1 | `fp8` | 656 | 175/198 — 88.38% |
-| rev 1 | `nvfp4_ds_mla` (4-bit) | 432 | 174/198 — 87.88% |
-| **bf16-uplift** | **`nf3_ds_mla` (3-bit)** | **304** | **177/198 — 89.39%** |
+### Speculator upper bound and DCP rank cache
 
-Reference points (NVIDIA, full GLM-5.2, no 4-card constraint): **FP8 89.52 / NVFP4 89.39**.
-This run **equals the full-model NVFP4 reference** while holding the KV cache in less than half
-the bytes of fp8. The +2/+3-question spread over the rev-1 baselines is within binomial noise at
-n=198 (±4 at 1σ) — the conservative claim is *parity with fp8-KV quality*; the load-bearing finding
-is **no measurable quality cost from 3-bit KV**.
+The speculator supplies a CPU-resident optimistic sequence-length bound to each draft-step metadata rebuild. The DCP helper reuses a constant rank-offset tensor instead of rebuilding it on CUDA. Together they remove two recurring synchronization paths without changing partition arithmetic.
 
-Run facts:
-- Protocol: 198 questions, concurrency 8, `reasoning_effort: max`, temperature 1.0, max 100k tokens/answer
-  ([madeby561/reap-bench](https://github.com/madeby561/reap-bench) `gpqa_bench.py`)
-- Wall time 9h26m; 8 requests in flight end-to-end; **zero preemptions** on a 343k-token pool
-- Of the 21 misses, 9 were final-letter parse failures ("None"), an artifact of temp-1.0 free-form
-  endings that affects all runs in this table equally
+| Validation cell | Result |
+|---|---:|
+| C1/ctx0 per-user, five 60 s cells | 110.35 / 110.87 / 110.70 / 110.32 / 113.56; median **110.70 tok/s** |
+| C1/ctx32k per-user | **99.98 tok/s** |
+| C2/ctx32k aggregate | **130.80 tok/s** |
+| C8/ctx32k aggregate | **271.95 tok/s** |
 
-## LAVD — long-structured-context consistency
+These were adopted matched per-cell validations. They should not be described as a formally passed six-cell promotion matrix because the orchestration validity rule rejected one faster sequential-turnover cell despite a healthy server, zero errors, and no queue.
 
-[LAVD](https://github.com/local-inference-lab/llm-inference-bench) (`--test-profile lavd`) embeds a
-167-row work ledger (~29k-token prompt) containing planted data-entry errors; the model must keep the
-structure consistent, find and repair the errors, and return the final ticket count and hours
-(expected `72, 46.0`; NEAR = within ±4). It is the most KV-noise-sensitive quality probe here —
-the failure mode it hunts is losing track of corrections buried deep in context.
+### MXFP8 no-init allocation
 
-| Run | Score | Exact rate | In-tolerance |
-|---|---|---|---|
-| 10 runs @ conc 10 | EXACT 6 / NEAR 4 / FAIL 0 | 60% | 100% |
-| 30 runs @ conc 10 | EXACT 19 / NEAR 9 / FAIL 2 | 63% | 93% |
-| **Combined (n=40)** | **EXACT 25 / NEAR 13 / FAIL 2** | **62.5%** | **95%** |
+The online quantizer now skips two unity fills for scale buffers that it immediately overwrites for every logical row consumed by GEMM.
 
-- Completions averaged ~14.4k reasoning tokens (p99 ~23k, none hit a cap) — the model reasons at
-  length over 3-bit-quantized context without losing the ledger. Zero unparseable answers in 40 runs.
-- The 2 failures answered nearly the same wrong pair (`65, 40.75` and `66, 40.75`) — both missed the
-  same repair rule, a reasoning slip on one planted error rather than context degradation.
-- Side data: per-request decode held ~35 t/s with 10 concurrent streams (~300 t/s system aggregate);
-  TTFT averaged 12.1s cold and 3.96s once the shared prompt prefix was cache-resident.
+| Validation cell | Client aggregate tok/s | Per-user active-decode tok/s | Acceptance |
+|---|---:|---:|---:|
+| C1/ctx0, five 60 s cells | 105.623–108.413; median **107.688** | 111.695–115.019; median **113.629** | 0.66–0.83 |
+| C1/ctx32k | not retained | **105.97** | not retained |
+| C8/ctx32k | **278.94** | not retained | not retained |
 
-## Long-context retrieval (needle)
+The five displayed C1 per-user observations were 113.63, 113.05, 115.02, 113.84, and 111.70 tok/s. Missing metric fields were not reconstructed.
 
-| Profile | KV | Needle depth | Result |
-|---|---|---|---|
-| Historical DCP4 max-context | `nf3_ds_mla` | **720,000 tokens** (50% depth) | HIT (exact string, 718,643-token prompt) |
-| Historical DCP2 | `nf3_ds_mla` | 300,000 tokens (50% depth) | HIT |
+## Interpretation limits
 
-## Notes
+- No current result establishes single-user throughput above 125 tok/s. Larger C2/C8 values are aggregate capacity measurements.
+- Aggregate throughput must not be compared with per-user active-decode throughput.
+- Deterministic and stochastic request payloads must not be compared as a performance A/B.
+- C8/128k is excluded because the requested working set exceeds the 637,440-token pool.
+- The AOT setting does not force fully cold compilation; lower-level caches remain reusable.
+- MXFP8 no-init leaves only unused physical M-tail padding unspecified. Logical scales are overwritten before GEMM reads them.
 
-- Speculative decoding (MTP) is lossless — it never changes outputs, only speed. Quality results are
-  independent of the `num_speculative_tokens` setting in the serving profile.
-- Raw logs/JSON for these runs are kept out of the repo for size; open an issue if you want them.
+The raw benchmark JSON, launch attestations, and repeated-run records are retained by the maintainers outside the repository because of size and machine-specific metadata. They are available on request through a public issue.
